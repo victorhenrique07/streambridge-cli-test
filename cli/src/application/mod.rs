@@ -1,2 +1,2 @@
-pub mod connectors;
 pub mod cli;
+pub mod connectors;
