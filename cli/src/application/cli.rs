@@ -6,13 +6,15 @@ pub struct Config {
 }
 
 pub fn parse_args() -> Config {
-    let args: Vec<String> = env::args().collect();
     let mut config = Config {
         items_per_page: 200,
     };
 
+    let args: Vec<String> = env::args().collect();
+
+
     let mut i = 1;
-    while i < args.len() {
+    while i <= args.len() {
         match args[i].as_str() {
             "--items" => {
                 i += 1;
@@ -21,7 +23,7 @@ pub fn parse_args() -> Config {
                     if let Ok(parsed) = v.parse::<u8>() {
                         config.items_per_page = parsed;
 
-                        continue;
+                        break;
                     }
 
                     println!("Erro: --items requer um número");
