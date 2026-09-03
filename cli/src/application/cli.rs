@@ -6,14 +6,16 @@ pub struct Config {
     pub items_per_page: u8,
     pub repository_user: String,
     pub repository_name: String,
+    pub retry_attempts: u8,
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
-            items_per_page: 100,
-            repository_user: String::from(""),
-            repository_name: String::from(""),
+            items_per_page: 30,
+            repository_user: String::new(),
+            repository_name: String::new(),
+            retry_attempts: 3,
         }
     }
 }
@@ -24,15 +26,13 @@ pub fn parse_args() -> Config {
     let args: Vec<String> = env::args().collect();
 
     if args.len() <= 1 {
-        println!(
-            "Uso: {} --url <url_do_repositorio> [--items <numero>]",
-            args[0]
-        );
+        println!("Uso: {} [--items <numero>]", args[0]);
         println!();
         println!("Parâmetros:");
-        println!("  --user    (obrigatório) Usuário do repositório");
-        println!("  --repo    (obrigatório) Nome do repositório");
-        println!("  --items   (opcional) Número de itens por página");
+        println!("  --items      (opcional) Número de itens por página");
+        println!("  --user       (obrigatório) Usuário dono do repositório.");
+        println!("  --repo       (obrigatório) Nome do repositório.");
+        println!("  --attempts   (opcional) Quantidade máxima de tentativas em caso de falha na API");
         process::exit(1);
     }
 
@@ -57,28 +57,47 @@ pub fn parse_args() -> Config {
                 i += 1;
 
                 if let Some(arg) = args.get(i) {
-                    let Ok(parsed) = arg.parse::<String>();
-                    config.repository_user = parsed;
+                    config.repository_user = arg.to_string();
 
                     i += 1;
                     continue;
                 }
 
-                println!("Erro: --user requer o usuário do dono do repositório.");
+                println!("Argumento faltando para --user.");
+                println!("Ex: --user [username]");
                 process::exit(1);
             }
             "--repo" => {
                 i += 1;
 
                 if let Some(arg) = args.get(i) {
-                    let Ok(parsed) = arg.parse::<String>();
-                    config.repository_name = parsed;
+                    config.repository_name = arg.to_string();
 
                     i += 1;
                     continue;
                 }
 
-                println!("Erro: --repo requer o nome do repositório.");
+                println!("Argumento faltando para --repo.");
+                println!("Ex: --repo [repositório]");
+                process::exit(1);
+            }
+            "--attempts" => {
+                i += 1;
+
+                if let Some(arg) = args.get(i) {
+                    if let Ok(parsed) = arg.parse::<u8>() {
+                        config.retry_attempts = parsed;
+
+                        i += 1;
+                        continue;
+                    }
+
+                    println!("Erro: --attemps requer um número");
+                    process::exit(1);
+                }
+
+                println!("Argumento faltando para --attempts.");
+                println!("Ex: --attempts [tentativas]");
                 process::exit(1);
             }
             _ => {

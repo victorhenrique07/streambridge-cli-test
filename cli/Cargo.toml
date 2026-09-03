@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+chrono = "0.4.45"
 dotenvy = "0.15.7"
 parse_link_header = "0.4.1"
 reqwest = { version = "0.13.4", features = ["json"]}
