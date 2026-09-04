@@ -34,5 +34,5 @@ pub enum Errors {
     EnvironmentVariableMissingError(String),
 
     #[error("Ocorreu um erro ao salvar as issues no arquivo json: {0}")]
-    WriteFileError(#[from] io::Error)
+    WriteFileError(#[from] io::Error),
 }

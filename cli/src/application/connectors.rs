@@ -7,6 +7,7 @@ use chrono::DateTime;
 use core::time;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
+use std::time::Instant;
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -17,7 +18,7 @@ struct Keys {
     repository_name: String,
     repository_user: String,
     api_url: String,
-    issues_path_target: String
+    issues_path_target: String,
 }
 
 pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
@@ -40,7 +41,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
         let mut response = get_issues(&client, &keys.personal_access_token, &url).await;
 
         if response.status() == 429 {
-            let retry_after: i64 = check_rate_limits(response.headers().clone());
+            let retry_after: i64 = check_rate_limits(&response.headers());
 
             let retry_after = time::Duration::from_secs(retry_after as u64);
 
@@ -62,14 +63,12 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
                 response = get_issues(&client, &keys.personal_access_token, &url).await;
             }
 
-            let retry_after = check_rate_limits(response.headers().clone());
+            let retry_after = check_rate_limits(response.headers());
 
             println!("{}", Errors::RateLimitError(retry_after));
             process::exit(1);
         } else if response.status() != 200 {
-            println!(
-                "{}", Errors::RequestError
-            );
+            println!("{}", Errors::RequestError);
             process::exit(1);
         }
 
@@ -111,7 +110,12 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
         );
     }
 
-    create_file(keys.repository_user, keys.repository_name, keys.issues_path_target, issues.clone())?;
+    create_file(
+        keys.repository_user,
+        keys.repository_name,
+        keys.issues_path_target,
+        &issues,
+    )?;
 
     Ok(issues)
 }
@@ -121,17 +125,26 @@ fn get_api_keys() -> Keys {
 
     let _personal_access_token = match std::env::var("PERSONAL_ACCESS_TOKEN") {
         Ok(value) => value,
-        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("PERSONAL_ACCESS_TOKEN".to_string())),
+        Err(_) => panic!(
+            "{}",
+            Errors::EnvironmentVariableMissingError("PERSONAL_ACCESS_TOKEN".to_string())
+        ),
     };
 
     let _repository_user = match std::env::var("REPOSITORY_USER") {
         Ok(value) => value,
-        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("REPOSITORY_USER".to_string())),
+        Err(_) => panic!(
+            "{}",
+            Errors::EnvironmentVariableMissingError("REPOSITORY_USER".to_string())
+        ),
     };
 
     let _repository_name = match std::env::var("REPOSITORY_NAME") {
         Ok(value) => value,
-        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("REPOSITORY_NAME".to_string())),
+        Err(_) => panic!(
+            "{}",
+            Errors::EnvironmentVariableMissingError("REPOSITORY_NAME".to_string())
+        ),
     };
 
     let _api_url = match std::env::var("API_URL") {
@@ -144,12 +157,18 @@ fn get_api_keys() -> Keys {
 
             value
         }
-        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("API_URL".to_string())),
+        Err(_) => panic!(
+            "{}",
+            Errors::EnvironmentVariableMissingError("API_URL".to_string())
+        ),
     };
 
-    let issues_path_target = match std::env::var("ISSUES_PATH_TARGET") {
+    let _directory_target = match std::env::var("ISSUES_PATH_TARGET") {
         Ok(value) => value,
-        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("ISSUES_PATH_TARGET".to_string())),
+        Err(_) => panic!(
+            "{}",
+            Errors::EnvironmentVariableMissingError("DIRECTORY_TARGET".to_string())
+        ),
     };
 
     let keys = Keys {
@@ -157,16 +176,16 @@ fn get_api_keys() -> Keys {
         repository_name: _repository_name,
         repository_user: _repository_user,
         api_url: _api_url,
-        issues_path_target: issues_path_target
+        issues_path_target: _directory_target,
     };
 
     keys
 }
 
-fn check_rate_limits(headers: HeaderMap) -> i64 {
+fn check_rate_limits(headers: &HeaderMap) -> i64 {
     let mut retry_after: i64 = 0;
 
-    if let Some(header_response) = headers.get("Retry-After") {
+    if let Some(header_response) = headers.get("retry-after") {
         let retry_after_str = match header_response.to_str() {
             Ok(res) => res,
             Err(error) => panic!("{}", &Errors::TimestampExtractError(error)),
@@ -223,18 +242,21 @@ async fn get_issues(
     response
 }
 
-fn create_file(user: String, repo_name: String, root_path: String, issues: Vec<Issue>) -> io::Result<()> {
-    let mut root_path = std::path::PathBuf::from(root_path);
+fn create_file(
+    user: String,
+    repo_name: String,
+    root_path: String,
+    issues: &Vec<Issue>,
+) -> io::Result<()> {
+    let root_path = std::path::PathBuf::from(root_path);
+
+    if !root_path.exists() {
+        fs::create_dir_all(&root_path)?;
+    }
 
     let file_name = format!("{}-{}-issues.json", user, repo_name);
 
-    root_path.push("issues");
-
     let file_path = root_path.join(file_name);
-
-    if !root_path.exists() {
-        fs::create_dir_all(root_path)?;
-    }
 
     let mut file = File::create(file_path.clone())?;
 
@@ -242,7 +264,7 @@ fn create_file(user: String, repo_name: String, root_path: String, issues: Vec<I
 
     let issues_json = match serde_json::to_string_pretty(&issues) {
         Ok(issues) => issues,
-        Err(_) => panic!("{}", &Errors::SerializingError())
+        Err(_) => panic!("{}", &Errors::SerializingError()),
     };
 
     file.write_all(issues_json.as_bytes())?;
