@@ -111,7 +111,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
         );
     }
 
-    create_file(keys.repository_user, keys.repository_name, path, issues.clone())?;
+    create_file(keys.repository_user, keys.repository_name, keys.issues_path_target, issues.clone())?;
 
     Ok(issues)
 }
