@@ -2,9 +2,10 @@ extern crate chrono;
 
 use crate::application::cli::Config;
 use crate::domain::issues::Issue;
-use core::time;
 use chrono::DateTime;
+use core::time;
 use reqwest::header::HeaderMap;
+use reqwest::Response;
 
 use std::error::Error;
 use std::fs::{self, File};
@@ -15,14 +16,15 @@ struct Keys {
     personal_access_token: String,
     repository_name: String,
     repository_user: String,
-    api_url: String
+    api_url: String,
 }
 
 pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Error>> {
     let mut page: u8 = 0;
     let keys: Keys = get_api_keys();
 
-    let _client = reqwest::Client::builder()
+    let client = reqwest::Client::builder()
+        .timeout(time::Duration::from_secs(10))
         .user_agent("CLIRustApp/1.0")
         .build()?;
 
@@ -34,12 +36,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Err
     );
 
     loop {
-        let mut response = _client
-            .get(&url)
-            .bearer_auth(keys.personal_access_token.to_string())
-            .header("Accept", "application/vnd.github+json")
-            .send()
-            .await?;
+        let mut response = get_issues(&client, &keys.personal_access_token, &url).await;
 
         if response.status() == 429 {
             let retry_after: i64 = check_rate_limits(response.headers().clone());
@@ -48,12 +45,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Err
 
             thread::sleep(retry_after);
 
-            response = _client
-                .get(&url)
-                .bearer_auth(keys.personal_access_token.to_string())
-                .header("Accept", "application/vnd.github+json")
-                .send()
-                .await?;
+            response = get_issues(&client, &keys.personal_access_token, &url).await;
         } else if response.status() == 403 {
             for attempt in 0..config.retry_attempts {
                 let secs = 2 * 2u8.pow(attempt as u32);
@@ -66,17 +58,15 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Err
 
                 thread::sleep(retry_after);
 
-                response = _client
-                    .get(&url)
-                    .bearer_auth(keys.personal_access_token.to_string())
-                    .header("Accept", "application/vnd.github+json")
-                    .send()
-                    .await?;
+                response = get_issues(&client, &keys.personal_access_token, &url).await;
             }
 
             let retry_after = check_rate_limits(response.headers().clone());
-            
-            println!("Houve um problema na chamada. Tente novamente em {} minutos.", retry_after);
+
+            println!(
+                "Houve um problema na chamada. Tente novamente em {} minutos.",
+                retry_after
+            );
             process::exit(1);
         } else if response.status() != 200 {
             println!(
@@ -156,7 +146,7 @@ fn get_api_keys() -> Keys {
             value = splited_url[0].to_string();
 
             value
-        },
+        }
         Err(_) => "API_URL deve estar definido.".to_string(),
     };
 
@@ -181,7 +171,10 @@ fn check_rate_limits(headers: HeaderMap) -> i64 {
 
         retry_after = match str::parse::<i64>(retry_after_str) {
             Ok(res) => res,
-            Err(error) => panic!("Não foi possível converter o timestamp do rate limit. Error: {}", error),
+            Err(error) => panic!(
+                "Não foi possível converter o timestamp do rate limit. Error: {}",
+                error
+            ),
         };
     }
 
@@ -193,7 +186,10 @@ fn check_rate_limits(headers: HeaderMap) -> i64 {
 
         let parsed_timestamp = match str::parse::<u64>(rate_limit_timestamp_str) {
             Ok(res) => res,
-            Err(error) => panic!("Não foi possível converter o timestamp do rate limit. Error: {}", error),
+            Err(error) => panic!(
+                "Não foi possível converter o timestamp do rate limit. Error: {}",
+                error
+            ),
         };
 
         if let Some(datetime) = DateTime::from_timestamp(parsed_timestamp as i64, 0) {
@@ -204,6 +200,31 @@ fn check_rate_limits(headers: HeaderMap) -> i64 {
     }
 
     retry_after
+}
+
+async fn get_issues(
+    client: &reqwest::Client,
+    personal_access_token: &String,
+    url: &String,
+) -> Response {
+    let response = match client
+        .get(url)
+        .bearer_auth(personal_access_token)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+    {
+        Ok(resp) => resp,
+        Err(e) if e.is_timeout() => {
+            println!("Erro na requisição: {}", e);
+            process::exit(1)
+        },
+        Err(e) => {
+            panic!("Erro na requisição: {}", e)
+        }
+    };
+
+    response
 }
 
 fn create_file(user: String, repo_name: String, issues: Vec<Issue>) -> io::Result<()> {
