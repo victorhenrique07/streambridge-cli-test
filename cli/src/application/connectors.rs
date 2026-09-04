@@ -17,6 +17,7 @@ struct Keys {
     repository_name: String,
     repository_user: String,
     api_url: String,
+    issues_path_target: String
 }
 
 pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
@@ -110,7 +111,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
         );
     }
 
-    create_file(keys.repository_user, keys.repository_name, issues.clone())?;
+    create_file(keys.repository_user, keys.repository_name, path, issues.clone())?;
 
     Ok(issues)
 }
@@ -146,11 +147,17 @@ fn get_api_keys() -> Keys {
         Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("API_URL".to_string())),
     };
 
+    let issues_path_target = match std::env::var("ISSUES_PATH_TARGET") {
+        Ok(value) => value,
+        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("ISSUES_PATH_TARGET".to_string())),
+    };
+
     let keys = Keys {
         personal_access_token: _personal_access_token,
         repository_name: _repository_name,
         repository_user: _repository_user,
         api_url: _api_url,
+        issues_path_target: issues_path_target
     };
 
     keys
@@ -216,8 +223,8 @@ async fn get_issues(
     response
 }
 
-fn create_file(user: String, repo_name: String, issues: Vec<Issue>) -> io::Result<()> {
-    let mut root_path = env::current_dir()?;
+fn create_file(user: String, repo_name: String, root_path: String, issues: Vec<Issue>) -> io::Result<()> {
+    let mut root_path = std::path::PathBuf::from(root_path);
 
     let file_name = format!("{}-{}-issues.json", user, repo_name);
 
