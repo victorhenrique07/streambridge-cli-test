@@ -1,13 +1,13 @@
 extern crate chrono;
 
 use crate::application::cli::Config;
+use crate::domain::errors::Errors;
 use crate::domain::issues::Issue;
 use chrono::DateTime;
 use core::time;
-use reqwest::header::HeaderMap;
 use reqwest::Response;
+use reqwest::header::HeaderMap;
 
-use std::error::Error;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::{env, process, thread};
@@ -19,7 +19,7 @@ struct Keys {
     api_url: String,
 }
 
-pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Error>> {
+pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
     let mut page: u8 = 0;
     let keys: Keys = get_api_keys();
 
@@ -63,15 +63,11 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Err
 
             let retry_after = check_rate_limits(response.headers().clone());
 
-            println!(
-                "Houve um problema na chamada. Tente novamente em {} minutos.",
-                retry_after
-            );
+            println!("{}", Errors::RateLimitError(retry_after));
             process::exit(1);
         } else if response.status() != 200 {
             println!(
-                "Ocorreu um problema, tente novamente. Status Code da requisição: {}",
-                response.status()
+                "{}", Errors::RequestError
             );
             process::exit(1);
         }
@@ -87,7 +83,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Box<dyn Err
                 issues.retain(|i| i.pull_request.is_none());
                 issues
             }
-            Err(error) => panic!("Erro ao separar issues de pull requests. Error: {error}"),
+            Err(error) => panic!("{}", Errors::FetchIssuesFailed(error)),
         };
 
         issues.extend(new_issues.clone());
@@ -124,17 +120,17 @@ fn get_api_keys() -> Keys {
 
     let _personal_access_token = match std::env::var("PERSONAL_ACCESS_TOKEN") {
         Ok(value) => value,
-        Err(_) => "PERSONAL_ACCESS_TOKEN deve estar definido.".to_string(),
+        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("PERSONAL_ACCESS_TOKEN".to_string())),
     };
 
     let _repository_user = match std::env::var("REPOSITORY_USER") {
         Ok(value) => value,
-        Err(_) => "REPOSITORY_USER deve estar definido.".to_string(),
+        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("REPOSITORY_USER".to_string())),
     };
 
     let _repository_name = match std::env::var("REPOSITORY_NAME") {
         Ok(value) => value,
-        Err(_) => "REPOSITORY_NAME deve estar definido.".to_string(),
+        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("REPOSITORY_NAME".to_string())),
     };
 
     let _api_url = match std::env::var("API_URL") {
@@ -147,7 +143,7 @@ fn get_api_keys() -> Keys {
 
             value
         }
-        Err(_) => "API_URL deve estar definido.".to_string(),
+        Err(_) => panic!("{}", Errors::EnvironmentVariableMissingError("API_URL".to_string())),
     };
 
     let keys = Keys {
@@ -166,30 +162,24 @@ fn check_rate_limits(headers: HeaderMap) -> i64 {
     if let Some(header_response) = headers.get("Retry-After") {
         let retry_after_str = match header_response.to_str() {
             Ok(res) => res,
-            Err(error) => panic!("Não foi possível extrair o Retry-After. Error: {}", error),
+            Err(error) => panic!("{}", &Errors::TimestampExtractError(error)),
         };
 
         retry_after = match str::parse::<i64>(retry_after_str) {
             Ok(res) => res,
-            Err(error) => panic!(
-                "Não foi possível converter o timestamp do rate limit. Error: {}",
-                error
-            ),
+            Err(error) => panic!("{}", Errors::TimestampParseError(error)),
         };
     }
 
     if let Some(header_response) = headers.get("x-ratelimit-reset") {
         let rate_limit_timestamp_str = match header_response.to_str() {
             Ok(res) => res,
-            Err(error) => panic!("Não foi possível extrair o timestamp. Error: {}", error),
+            Err(error) => panic!("{}", &Errors::TimestampExtractError(error)),
         };
 
         let parsed_timestamp = match str::parse::<u64>(rate_limit_timestamp_str) {
             Ok(res) => res,
-            Err(error) => panic!(
-                "Não foi possível converter o timestamp do rate limit. Error: {}",
-                error
-            ),
+            Err(error) => panic!("{}", Errors::TimestampParseError(error)),
         };
 
         if let Some(datetime) = DateTime::from_timestamp(parsed_timestamp as i64, 0) {
@@ -216,9 +206,8 @@ async fn get_issues(
     {
         Ok(resp) => resp,
         Err(e) if e.is_timeout() => {
-            println!("Erro na requisição: {}", e);
-            process::exit(1)
-        },
+            panic!("{}", Errors::TimeoutError(e.to_string()));
+        }
         Err(e) => {
             panic!("Erro na requisição: {}", e)
         }
@@ -244,8 +233,10 @@ fn create_file(user: String, repo_name: String, issues: Vec<Issue>) -> io::Resul
 
     writeln!(file, "{} Issues", repo_name)?;
 
-    let issues_json = serde_json::to_string_pretty(&issues)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let issues_json = match serde_json::to_string_pretty(&issues) {
+        Ok(issues) => issues,
+        Err(_) => panic!("{}", &Errors::SerializingError())
+    };
 
     file.write_all(issues_json.as_bytes())?;
 
