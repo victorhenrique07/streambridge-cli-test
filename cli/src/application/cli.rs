@@ -26,7 +26,6 @@ pub fn parse_args() -> Config {
     let args: Vec<String> = env::args().collect();
 
     if args.len() <= 1 {
-        println!("Uso: {} [--items <numero>]", args[0]);
         println!();
         println!("Parâmetros:");
         println!("  --items      (opcional) Número de itens por página");
@@ -52,8 +51,13 @@ pub fn parse_args() -> Config {
                         i += 1;
                         continue;
                     }
+
+                    println!("Erro: --items requer um número");
+                    process::exit(1);
                 }
-                println!("Erro: --items requer um número");
+                
+                println!("Argumento faltando para --attempts.");
+                println!("Ex: --attempts [tentativas]");
                 process::exit(1);
             }
             "--user" => {
