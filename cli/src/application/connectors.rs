@@ -3,15 +3,15 @@ extern crate chrono;
 use crate::application::cli::Config;
 use crate::domain::errors::Errors;
 use crate::domain::issues::Issue;
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use core::time;
+use std::error::Error;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use std::time::Instant;
 
-use std::fs::{self, File};
-use std::io::{self, Write};
-use std::{env, process, thread};
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::{process, thread};
 
 struct Keys {
     personal_access_token: String,
@@ -38,7 +38,9 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
     );
 
     loop {
-        let mut response = get_issues(&client, &keys.personal_access_token, &url).await;
+        let since = check_watermark();
+
+        let mut response = get_issues(&client, &keys.personal_access_token, &url, &since).await;
 
         if response.status() == 429 {
             let retry_after: i64 = check_rate_limits(&response.headers());
@@ -47,7 +49,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
 
             thread::sleep(retry_after);
 
-            response = get_issues(&client, &keys.personal_access_token, &url).await;
+            response = get_issues(&client, &keys.personal_access_token, &url, &since).await;
         } else if response.status() == 403 {
             for attempt in 0..config.retry_attempts {
                 let secs = 2 * 2u8.pow(attempt as u32);
@@ -60,7 +62,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
 
                 thread::sleep(retry_after);
 
-                response = get_issues(&client, &keys.personal_access_token, &url).await;
+                response = get_issues(&client, &keys.personal_access_token, &url, &since).await;
             }
 
             let retry_after = check_rate_limits(response.headers());
@@ -99,6 +101,8 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
                     }
                 }
             }
+        } else {
+            break;
         }
 
         page += 1;
@@ -114,7 +118,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
         keys.repository_user,
         keys.repository_name,
         keys.issues_path_target,
-        &issues,
+        &mut issues,
     )?;
 
     Ok(issues)
@@ -222,11 +226,13 @@ async fn get_issues(
     client: &reqwest::Client,
     personal_access_token: &String,
     url: &String,
+    since: &Option<String>
 ) -> Response {
     let response = match client
         .get(url)
         .bearer_auth(personal_access_token)
         .header("Accept", "application/vnd.github+json")
+        .query(&[("since", since)])
         .send()
         .await
     {
@@ -246,21 +252,34 @@ fn create_file(
     user: String,
     repo_name: String,
     root_path: String,
-    issues: &Vec<Issue>,
+    issues: &mut Vec<Issue>,
 ) -> io::Result<()> {
+    issues.sort_by_key(|x| x.updated_at);
+    issues.reverse();
+
+    let _watermark = create_watermark(issues[0].updated_at);
+    
     let root_path = std::path::PathBuf::from(root_path);
+
+    let file_name = format!("{}-{}-issues.json", user, repo_name);
+    
+    let file_path = root_path.join(file_name);
 
     if !root_path.exists() {
         fs::create_dir_all(&root_path)?;
     }
+    
+    if !file_path.exists() {
+        File::create(file_path.clone())?;
+    }
 
-    let file_name = format!("{}-{}-issues.json", user, repo_name);
-
-    let file_path = root_path.join(file_name);
-
-    let mut file = File::create(file_path.clone())?;
-
-    writeln!(file, "{} Issues", repo_name)?;
+    let mut file = match OpenOptions::new()
+        .write(true)
+        .append(true)
+        .open(&file_path) {
+        Ok(value) => value,
+        Err(_) => panic!("dada"),
+    };
 
     let issues_json = match serde_json::to_string_pretty(&issues) {
         Ok(issues) => issues,
@@ -273,3 +292,43 @@ fn create_file(
 
     Ok(())
 }
+
+fn create_watermark(since: DateTime<Utc>) -> Result<(), Box<dyn Error>> {
+    let watermark = std::path::PathBuf::from("watermark");
+
+    let watermark_path = watermark.join("watermark.txt");
+    
+    if !watermark_path.exists() {
+        fs::create_dir_all(&watermark)?;
+    }
+    
+    let mut file = match File::create(watermark_path.clone()) {
+        Ok(value) => value,
+        Err(error) => panic!("{}", error),
+    };
+    
+    file.write(since.to_string().as_bytes())?;
+
+    Ok(())
+}
+
+fn check_watermark() -> Option<String> {
+    let watermark = std::path::PathBuf::from("watermark");
+
+    let watermark_path = watermark.join("watermark.txt");
+
+    if !watermark_path.exists() {
+        return None;
+    }
+
+    let mut file = match File::open(&watermark_path) {
+        Ok(value) => value,
+        Err(_) => panic!()
+    };
+
+    let mut content = String::new();
+    file.read_to_string(&mut content).ok()?;
+
+    Some(content)
+}
+

@@ -32,6 +32,7 @@ pub fn parse_args() -> Config {
         println!("  --items      (opcional) Número de itens por página");
         println!("  --user       (obrigatório) Usuário dono do repositório.");
         println!("  --repo       (obrigatório) Nome do repositório.");
+        println!("  --update     (opcional) Atualiza o json de issues.");
         println!(
             "  --attempts   (opcional) Quantidade máxima de tentativas em caso de falha na API"
         );

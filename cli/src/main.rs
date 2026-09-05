@@ -19,7 +19,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let total_issues = issues.len();
 
     let time_lapse = total_start.elapsed().as_secs() / 60;
-    println!("Um total de {total_issues} issues.");
+    
+    println!("Total de {total_issues} issues extraidas.");
     println!("Duração: {} minutos", time_lapse);
 
     Ok(())
