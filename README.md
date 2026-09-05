@@ -53,6 +53,9 @@ cargo run -- --user [usuario do repositorio] --repo [nome do repositorio]
 **Exemplo:**
 
 ```bash
+cargo build
+```
+```bash
 cargo run -- --user octocat --repo Spoon-Knife --items 100
 ```
 
@@ -67,7 +70,7 @@ cargo run -- --user octocat --repo Spoon-Knife --items 100
 
 ## Nível alcançado
 
-**Nível 3 - Extração incremental**   (completo)
+**Nível 3 - Extração incremental**
 
 ### Implementado
 
@@ -91,9 +94,9 @@ cargo run -- --user octocat --repo Spoon-Knife --items 100
     - [x] Watermark persistido em disco: a aplicação guarda o maior updated_at já extraído.
     - [x] Em execuções subsequentes, usa o parâmetro since para extrair apenas o que mudou desde a última execução.
     - [ ] Escrita e atualização de watermark de forma que uma falha parcial não deixe o estado corrompido.
-    - [ ] 
 
 ## Decisões de Design
+
 
 **Decisão:** Dividir o projeto em dois módulos: **application** e **domain**.
 
@@ -115,7 +118,7 @@ cargo run -- --user octocat --repo Spoon-Knife --items 100
 
 **Decisão:** Caminho do watermark marretado no código.
 
-**Por quê:** No PDF do desafio está escrito para não marretar esse tipo de coisa no código, mas, já que o watermark é algo que ficaria escondido do usuário final, acredito que não seja necessária uma variável de ambiente configurável para isso.
+**Por quê:** No PDF do desafio está escrito para não cravar esse tipo de coisa no código, mas, como o watermark é algo que ficaria escondido do usuário final, acredito que não seja necessária uma variável de ambiente para isso.
 
 ## Uso de IA
 
@@ -126,8 +129,7 @@ Os tópicos consultados foram:
 - Ownership e Borrowing
 - Closures
 - Uso do `match`
-- entender como lidar com rate limit
-
+- Entender como lidar com rate limit
 
 
 ## O que faria se tivesse mais tempo

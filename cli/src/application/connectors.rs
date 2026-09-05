@@ -15,8 +15,6 @@ use std::{process, thread};
 
 struct Keys {
     personal_access_token: String,
-    repository_name: String,
-    repository_user: String,
     api_url: String,
     issues_path_target: String,
 }
@@ -34,7 +32,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
 
     let mut url = format!(
         "https://{}/repos/{}/{}/issues?page=1&per_page={}",
-        keys.api_url, keys.repository_user, keys.repository_name, config.items_per_page
+        keys.api_url, config.repository_user, config.repository_name, config.items_per_page
     );
 
     loop {
@@ -115,8 +113,8 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
     }
 
     create_file(
-        keys.repository_user,
-        keys.repository_name,
+        config.repository_user,
+        config.repository_name,
         keys.issues_path_target,
         &mut issues,
     )?;
@@ -132,22 +130,6 @@ fn get_api_keys() -> Keys {
         Err(_) => panic!(
             "{}",
             Errors::EnvironmentVariableMissingError("PERSONAL_ACCESS_TOKEN".to_string())
-        ),
-    };
-
-    let _repository_user = match std::env::var("REPOSITORY_USER") {
-        Ok(value) => value,
-        Err(_) => panic!(
-            "{}",
-            Errors::EnvironmentVariableMissingError("REPOSITORY_USER".to_string())
-        ),
-    };
-
-    let _repository_name = match std::env::var("REPOSITORY_NAME") {
-        Ok(value) => value,
-        Err(_) => panic!(
-            "{}",
-            Errors::EnvironmentVariableMissingError("REPOSITORY_NAME".to_string())
         ),
     };
 
@@ -177,8 +159,6 @@ fn get_api_keys() -> Keys {
 
     let keys = Keys {
         personal_access_token: _personal_access_token,
-        repository_name: _repository_name,
-        repository_user: _repository_user,
         api_url: _api_url,
         issues_path_target: _directory_target,
     };
@@ -228,14 +208,16 @@ async fn get_issues(
     url: &String,
     since: &Option<String>
 ) -> Response {
-    let response = match client
+    let mut request = client
         .get(url)
         .bearer_auth(personal_access_token)
-        .header("Accept", "application/vnd.github+json")
-        .query(&[("since", since)])
-        .send()
-        .await
-    {
+        .header("Accept", "application/vnd.github+json");
+
+    if let Some(s) = since {
+        request = request.query(&[("since", s)]);
+    }
+
+    let response = match request.send().await {
         Ok(resp) => resp,
         Err(e) if e.is_timeout() => {
             panic!("{}", Errors::TimeoutError(e.to_string()));
