@@ -55,7 +55,7 @@ pub fn parse_args() -> Config {
                     println!("Erro: --items requer um número");
                     process::exit(1);
                 }
-                
+
                 println!("Argumento faltando para --attempts.");
                 println!("Ex: --attempts [tentativas]");
                 process::exit(1);

@@ -1,13 +1,15 @@
 extern crate chrono;
 
 use crate::application::cli::Config;
+use crate::application::watermark::Watermark;
 use crate::domain::errors::Errors;
 use crate::domain::issues::Issue;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use core::time;
-use std::error::Error;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
+use std::error::Error;
+use std::path::PathBuf;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
@@ -36,9 +38,9 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
     );
 
     loop {
-        let since = check_watermark();
+        let watermark = check_watermark();
 
-        let mut response = get_issues(&client, &keys.personal_access_token, &url, &since).await;
+        let mut response = get_issues(&client, &keys.personal_access_token, &url, &watermark).await;
 
         if response.status() == 429 {
             let retry_after: i64 = check_rate_limits(&response.headers());
@@ -47,7 +49,7 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
 
             thread::sleep(retry_after);
 
-            response = get_issues(&client, &keys.personal_access_token, &url, &since).await;
+            response = get_issues(&client, &keys.personal_access_token, &url, &watermark).await;
         } else if response.status() == 403 {
             for attempt in 0..config.retry_attempts {
                 let secs = 2 * 2u8.pow(attempt as u32);
@@ -60,7 +62,11 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
 
                 thread::sleep(retry_after);
 
-                response = get_issues(&client, &keys.personal_access_token, &url, &since).await;
+                response = get_issues(&client, &keys.personal_access_token, &url, &watermark).await;
+
+                if response.status() == 200 {
+                    break;
+                }
             }
 
             let retry_after = check_rate_limits(response.headers());
@@ -81,6 +87,11 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
             Ok(issues) => {
                 let mut issues = issues;
                 issues.retain(|i| i.pull_request.is_none());
+
+                if let Some(wm) = &watermark {
+                    issues.retain(|i| i.id != wm.issue_id);
+                }
+
                 issues
             }
             Err(error) => panic!("{}", Errors::FetchIssuesFailed(error)),
@@ -206,7 +217,7 @@ async fn get_issues(
     client: &reqwest::Client,
     personal_access_token: &String,
     url: &String,
-    since: &Option<String>
+    since: &Option<Watermark>,
 ) -> Response {
     let mut request = client
         .get(url)
@@ -214,7 +225,7 @@ async fn get_issues(
         .header("Accept", "application/vnd.github+json");
 
     if let Some(s) = since {
-        request = request.query(&[("since", s)]);
+        request = request.query(&[("since", s.issue_updated_at)]);
     }
 
     let response = match request.send().await {
@@ -239,26 +250,32 @@ fn create_file(
     issues.sort_by_key(|x| x.updated_at);
     issues.reverse();
 
-    let _watermark = create_watermark(issues[0].updated_at);
-    
+    if issues.is_empty() {
+        return Ok(());
+    }
+
+    let _watermark = create_watermark(Watermark {
+        issue_id: issues[0].id,
+        issue_updated_at: issues[0].updated_at,
+    });
+
     let root_path = std::path::PathBuf::from(root_path);
 
     let file_name = format!("{}-{}-issues.json", user, repo_name);
-    
+
     let file_path = root_path.join(file_name);
 
     if !root_path.exists() {
         fs::create_dir_all(&root_path)?;
     }
-    
-    if !file_path.exists() {
-        File::create(file_path.clone())?;
-    }
 
-    let mut file = match OpenOptions::new()
-        .write(true)
-        .append(true)
-        .open(&file_path) {
+    if file_path.exists() {
+        append_issues(issues.clone(), &file_path);
+    }
+    
+    File::create(file_path.clone())?;
+
+    let mut file = match OpenOptions::new().write(true).open(&file_path) {
         Ok(value) => value,
         Err(_) => panic!("dada"),
     };
@@ -275,29 +292,25 @@ fn create_file(
     Ok(())
 }
 
-fn create_watermark(since: DateTime<Utc>) -> Result<(), Box<dyn Error>> {
+fn create_watermark(issue: Watermark) -> Result<(), Box<dyn Error>> {
     let watermark = std::path::PathBuf::from("watermark");
 
-    let watermark_path = watermark.join("watermark.txt");
-    
-    if !watermark_path.exists() {
-        fs::create_dir_all(&watermark)?;
-    }
-    
-    let mut file = match File::create(watermark_path.clone()) {
-        Ok(value) => value,
-        Err(error) => panic!("{}", error),
-    };
-    
-    file.write(since.to_string().as_bytes())?;
+    let watermark_path = watermark.join("watermark.json");
+
+    fs::create_dir_all(&watermark)?;
+
+    let mut file = File::create(watermark_path.clone())?;
+
+    let data = serde_json::to_vec(&issue)?;
+    file.write_all(&data)?;
 
     Ok(())
 }
 
-fn check_watermark() -> Option<String> {
+fn check_watermark() -> Option<Watermark> {
     let watermark = std::path::PathBuf::from("watermark");
 
-    let watermark_path = watermark.join("watermark.txt");
+    let watermark_path = watermark.join("watermark.json");
 
     if !watermark_path.exists() {
         return None;
@@ -305,12 +318,38 @@ fn check_watermark() -> Option<String> {
 
     let mut file = match File::open(&watermark_path) {
         Ok(value) => value,
-        Err(_) => panic!()
+        Err(_) => panic!(),
     };
 
     let mut content = String::new();
     file.read_to_string(&mut content).ok()?;
 
-    Some(content)
+    let data: Watermark = match serde_json::from_str(&content) {
+        Ok(value) => value,
+        Err(_) => panic!("{}", &Errors::SerializingError()),
+    };
+
+    Some(data)
+}
+
+fn append_issues(issues: Vec<Issue>, file_path: &PathBuf) -> Vec<Issue> {
+    let mut issues = issues;
+    let mut file = match File::open(&file_path) {
+        Ok(value) => value,
+        Err(_) => panic!(),
+    };
+
+    let mut content = String::new();
+    let _ = file.read_to_string(&mut content);
+
+    let data: Vec<Issue> = match serde_json::from_str(&content) {
+        Ok(value) => value,
+        Err(_) => panic!("{}", &Errors::SerializingError()),
+    };
+
+    issues.extend(data);
+
+    println!("total de {} issues agora.", issues.len());
+    issues
 }
 
