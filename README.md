@@ -96,7 +96,7 @@ cargo run -- --user octocat --repo Spoon-Knife --items 100
 - [x] **Nível 3 - Extração incremental**
     - [x] Watermark persistido em disco: a aplicação guarda o maior updated_at já extraído.
     - [x] Em execuções subsequentes, usa o parâmetro since para extrair apenas o que mudou desde a última execução.
-    - [x] Registros com mesmo updated_at não são registrados novamente.
+    - [ ] Registros com mesmo updated_at não são registrados novamente.
     - [ ] Escrita e atualização de watermark de forma que uma falha parcial não deixe o estado corrompido.
 
 ## Decisões de Design
