@@ -11,9 +11,10 @@
 | `chrono` | 0.4.45 | — |
 | `dotenvy` | 0.15.7 | — |
 | `parse_link_header` | 0.4.1 | — |
-| `reqwest` | 0.13.4 | `json` |
+| `reqwest` | 0.13.4 | `json` e `query` |
 | `serde` | 1.0.229 | `derive` |
 | `serde_json` | 1.0.151 | — |
+| `thiserror` | 2.0.20 | — |
 | `tokio` | 1.53.1 | `full` |
 
 ## Configuração do ambiente
@@ -24,7 +25,9 @@ Crie um **`.env`** na raiz do projeto com as variáveis abaixo:
 |---|---|---|---|
 | `GITHUB_API_URL` | Sim | — | URL base da API do GitHub |
 | `PERSONAL_ACCESS_TOKEN` | Sim | — | Token de acesso pessoal, usado para autenticar as requisições à API |
-| `DIRECTORY_TARGET` | Não | `issues` | Nome do diretório que ficarão os arquivos .json |
+| `ISSUES_PATH_TARGET` | Não | `issues` | Nome do diretório que ficarão os arquivos .json |
+
+Obs: Os dados extraídos ficarão sempre na raiz do projeto. O caminho escolhido será criado automaticamente caso ainda não exista.
 
 ### 2. Obter o token de acesso do GitHub
 
@@ -93,12 +96,13 @@ cargo run -- --user octocat --repo Spoon-Knife --items 100
 - [x] **Nível 3 - Extração incremental**
     - [x] Watermark persistido em disco: a aplicação guarda o maior updated_at já extraído.
     - [x] Em execuções subsequentes, usa o parâmetro since para extrair apenas o que mudou desde a última execução.
+    - [x] Registros com mesmo updated_at não são registrados novamente.
     - [ ] Escrita e atualização de watermark de forma que uma falha parcial não deixe o estado corrompido.
 
 ## Decisões de Design
 
 
-**Decisão:** Dividir o projeto em dois módulos: **application** e **domain**.
+**Decisão:** Dividir o projeto em três módulos: **application** e **domain** e **shared**.
 
 **Por quê:** Facilitar a implementação de novas features e futuras manutenções.
 
@@ -118,7 +122,7 @@ cargo run -- --user octocat --repo Spoon-Knife --items 100
 
 **Decisão:** Caminho do watermark marretado no código.
 
-**Por quê:** No PDF do desafio está escrito para não cravar esse tipo de coisa no código, mas, como o watermark é algo que ficaria escondido do usuário final, acredito que não seja necessária uma variável de ambiente para isso.
+**Por quê:** No PDF do desafio está escrito para não cravar esse tipo de coisa no código, mas, como o watermark é algo que ficaria escondido do usuário final, assumi que nao fosse necessário uma variável de ambiente para isso.
 
 ## Uso de IA
 

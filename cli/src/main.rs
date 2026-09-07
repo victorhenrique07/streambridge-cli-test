@@ -1,5 +1,6 @@
 mod application;
 mod domain;
+mod shared;
 
 use crate::application::cli::Config;
 use crate::application::cli::parse_args;

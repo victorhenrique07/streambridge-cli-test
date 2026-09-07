@@ -35,4 +35,7 @@ pub enum Errors {
 
     #[error("Ocorreu um erro ao salvar as issues no arquivo json: {0}")]
     WriteFileError(#[from] io::Error),
+
+    #[error("Erro ao abrir o arquivo {0}. {1}")]
+    OpenFileError(String, std::io::Error),
 }

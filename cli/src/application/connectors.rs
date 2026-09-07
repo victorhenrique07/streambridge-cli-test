@@ -1,25 +1,19 @@
 extern crate chrono;
 
 use crate::application::cli::Config;
-use crate::application::watermark::Watermark;
-use crate::domain::errors::Errors;
 use crate::domain::issues::Issue;
-use chrono::{DateTime, TimeDelta, Utc};
+use crate::shared::errors::Errors;
+use crate::shared::keys::{Keys, get_api_keys};
+use crate::shared::watermark::{Watermark, check_watermark, create_watermark};
+use chrono::DateTime;
 use core::time;
 use reqwest::Response;
 use reqwest::header::HeaderMap;
-use std::error::Error;
 use std::path::PathBuf;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::{process, thread};
-
-struct Keys {
-    personal_access_token: String,
-    api_url: String,
-    issues_path_target: String,
-}
 
 pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
     let mut page: u8 = 0;
@@ -133,50 +127,6 @@ pub async fn github_connection(config: Config) -> Result<Vec<Issue>, Errors> {
     Ok(issues)
 }
 
-fn get_api_keys() -> Keys {
-    dotenvy::dotenv().ok();
-
-    let _personal_access_token = match std::env::var("PERSONAL_ACCESS_TOKEN") {
-        Ok(value) => value,
-        Err(_) => panic!(
-            "{}",
-            Errors::EnvironmentVariableMissingError("PERSONAL_ACCESS_TOKEN".to_string())
-        ),
-    };
-
-    let _api_url = match std::env::var("API_URL") {
-        Ok(value) => {
-            let mut value = value.replace("https://", "");
-
-            let splited_url: Vec<&str> = value.split_terminator('/').collect();
-
-            value = splited_url[0].to_string();
-
-            value
-        }
-        Err(_) => panic!(
-            "{}",
-            Errors::EnvironmentVariableMissingError("API_URL".to_string())
-        ),
-    };
-
-    let _directory_target = match std::env::var("ISSUES_PATH_TARGET") {
-        Ok(value) => value,
-        Err(_) => panic!(
-            "{}",
-            Errors::EnvironmentVariableMissingError("DIRECTORY_TARGET".to_string())
-        ),
-    };
-
-    let keys = Keys {
-        personal_access_token: _personal_access_token,
-        api_url: _api_url,
-        issues_path_target: _directory_target,
-    };
-
-    keys
-}
-
 fn check_rate_limits(headers: &HeaderMap) -> i64 {
     let mut retry_after: i64 = 0;
 
@@ -272,7 +222,7 @@ fn create_file(
     if file_path.exists() {
         append_issues(issues.clone(), &file_path);
     }
-    
+
     File::create(file_path.clone())?;
 
     let mut file = match OpenOptions::new().write(true).open(&file_path) {
@@ -290,46 +240,6 @@ fn create_file(
     println!("Issues salvas em {}", file_path.display());
 
     Ok(())
-}
-
-fn create_watermark(issue: Watermark) -> Result<(), Box<dyn Error>> {
-    let watermark = std::path::PathBuf::from("watermark");
-
-    let watermark_path = watermark.join("watermark.json");
-
-    fs::create_dir_all(&watermark)?;
-
-    let mut file = File::create(watermark_path.clone())?;
-
-    let data = serde_json::to_vec(&issue)?;
-    file.write_all(&data)?;
-
-    Ok(())
-}
-
-fn check_watermark() -> Option<Watermark> {
-    let watermark = std::path::PathBuf::from("watermark");
-
-    let watermark_path = watermark.join("watermark.json");
-
-    if !watermark_path.exists() {
-        return None;
-    }
-
-    let mut file = match File::open(&watermark_path) {
-        Ok(value) => value,
-        Err(_) => panic!(),
-    };
-
-    let mut content = String::new();
-    file.read_to_string(&mut content).ok()?;
-
-    let data: Watermark = match serde_json::from_str(&content) {
-        Ok(value) => value,
-        Err(_) => panic!("{}", &Errors::SerializingError()),
-    };
-
-    Some(data)
 }
 
 fn append_issues(issues: Vec<Issue>, file_path: &PathBuf) -> Vec<Issue> {
@@ -352,4 +262,3 @@ fn append_issues(issues: Vec<Issue>, file_path: &PathBuf) -> Vec<Issue> {
     println!("total de {} issues agora.", issues.len());
     issues
 }
-
